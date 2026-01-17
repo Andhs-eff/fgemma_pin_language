@@ -307,9 +307,11 @@ async function processPinVerification(userInput) {
             content: `You are a model that can do function calling with the following functions.
 
 You MUST follow these rules:
+- Call EXACTLY ONE function.
 - If the user message contains a PIN (a 4-digit number, or a clearly stated PIN), call check_pin with the extracted digits.
 - If the user message does NOT contain a PIN, call no_tool with reason and next_prompt asking the user to provide a 4-digit PIN.
 - Never invent a PIN. Only extract from the user's message.
+- Do NOT call no_tool if you already called check_pin.
 
 Example Session (PIN provided):
 User: PIN is 7979
@@ -321,7 +323,7 @@ Model: <start_function_call>call:no_tool{reason:<escape>greeting only<escape>,ne
         },
         {
             role: "user",
-            content: `User said: "${userInput}". Decide whether to call check_pin or no_tool.`
+            content: `User said: "${userInput}". Call exactly one: check_pin OR no_tool.`
         }
     ];
 
@@ -349,8 +351,9 @@ Model: <start_function_call>call:no_tool{reason:<escape>greeting only<escape>,ne
     console.log('AI Response:', decoded);
 
     // Parse function call
+    // Prefer the real tool if both appear in the output.
     const pinResult = parseFunctionCall(decoded, 'check_pin');
-    const noToolResult = parseFunctionCall(decoded, 'no_tool');
+    const noToolResult = pinResult ? null : parseFunctionCall(decoded, 'no_tool');
 
     if (pinResult && pinResult.pin !== undefined) {
         // Execute the tool
@@ -395,9 +398,11 @@ async function processLanguageVerification(userInput) {
             content: `You are a model that can do function calling with the following functions.
 
 You MUST follow these rules:
+- Call EXACTLY ONE function.
 - If the user message contains a language name, call check_language with the extracted language.
 - If the user message does NOT contain a language name, call no_tool with reason and next_prompt asking the user to provide a language.
 - Never invent a language. Only extract from the user's message.
+- Do NOT call no_tool if you already called check_language.
 
 Example Session (language provided):
 User: I choose Spanish
@@ -409,7 +414,7 @@ Model: <start_function_call>call:no_tool{reason:<escape>greeting only<escape>,ne
         },
         {
             role: "user",
-            content: `User said: "${userInput}". Decide whether to call check_language or no_tool.`
+            content: `User said: "${userInput}". Call exactly one: check_language OR no_tool.`
         }
     ];
 
@@ -437,8 +442,9 @@ Model: <start_function_call>call:no_tool{reason:<escape>greeting only<escape>,ne
     console.log('AI Response:', decoded);
 
     // Parse function call
+    // Prefer the real tool if both appear in the output.
     const languageResult = parseFunctionCall(decoded, 'check_language');
-    const noToolResult = parseFunctionCall(decoded, 'no_tool');
+    const noToolResult = languageResult ? null : parseFunctionCall(decoded, 'no_tool');
 
     if (languageResult && languageResult.language !== undefined) {
         // Execute the tool

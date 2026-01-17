@@ -475,32 +475,46 @@ Model: <start_function_call>call:no_tool{reason:<escape>greeting only<escape>,ne
 function parseFunctionCall(decoded, expectedFunction) {
     const startTag = "<start_function_call>";
     const endTag = "<end_function_call>";
-    const startIndex = decoded.indexOf(startTag);
-    const endIndex = decoded.indexOf(endTag);
 
-    if (startIndex !== -1 && endIndex !== -1) {
-        let callStr = decoded.substring(startIndex + startTag.length, endIndex);
+    // There may be multiple tool calls; find the one matching expectedFunction.
+    let searchFrom = 0;
+    while (true) {
+        const startIndex = decoded.indexOf(startTag, searchFrom);
+        if (startIndex === -1) return null;
+
+        const endIndex = decoded.indexOf(endTag, startIndex + startTag.length);
+        if (endIndex === -1) return null;
+
+        const callStr = decoded.substring(startIndex + startTag.length, endIndex);
+        searchFrom = endIndex + endTag.length;
 
         // Check if this is the expected function
-        if (callStr.startsWith(`call:${expectedFunction}`)) {
-            try {
-                // Extract JSON-like string
-                let argsStr = callStr.substring(callStr.indexOf("{"));
+        if (!callStr.startsWith(`call:${expectedFunction}`)) {
+            continue;
+        }
 
-                // Sanitize to valid JSON
-                argsStr = argsStr
-                    .replace(/<escape>(.*?)<escape>/g, '"$1"') // Handle string escapes
-                    .replace(/(\w+):/g, '"$1":'); // Quote keys
+        try {
+            // Extract JSON-like string
+            let argsStr = callStr.substring(callStr.indexOf("{"));
 
-                return JSON.parse(argsStr);
-            } catch (error) {
-                console.error('Error parsing function call:', error);
-                return null;
-            }
+            // Sanitize to valid JSON.
+            // Models sometimes omit commas between fields, e.g.:
+            // {reason:<escape>greeting<escape>,next_prompt:<escape>...<escape>}  (OK)
+            // {reason:<escape>greeting<escape> next_prompt:<escape>...<escape>} (missing comma)
+            argsStr = argsStr
+                // Handle string escapes (allow multiline)
+                .replace(/<escape>(.*?)<escape>/gs, '"$1"')
+                // Quote keys
+                .replace(/(\w+)\s*:/g, '"$1":')
+                // Insert a missing comma between a string value and the next key
+                .replace(/"\s*(?=\w+"\s*:)/g, '", ');
+
+            return JSON.parse(argsStr);
+        } catch (error) {
+            console.error('Error parsing function call:', error);
+            return null;
         }
     }
-
-    return null;
 }
 
 // Update AI response display

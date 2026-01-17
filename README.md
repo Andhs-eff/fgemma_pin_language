@@ -49,7 +49,7 @@ test_scenarios.md     #Test Scenarios for Voice PIN & Language Verifier
 ## Setup and Usage
 
 ### Quick Start
-1. Navigate to [https://andhs-eff.github.io/fgemma_pin_language](https://andhs-eff.github.io/fgemma_pin_language) (or download `index.html` and `index.js` and open `index.js`) in a modern web browser
+1. Navigate to [https://andhs-eff.github.io/fgemma_pin_language](https://andhs-eff.github.io/fgemma_pin_language) (or download `index.html` and `index.js` and open `index.html`) in a modern web browser
 2. Wait for AI model to load (may take a couple of minutes)
 3. Click the microphone button when prompted
 4. Follow the voice instructions

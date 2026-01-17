@@ -2,7 +2,7 @@
 
 ## Scenario 1: Successful Verification
 **Steps:**
-1. Navigate to [https://andhs-eff.github.io/fgemma_pin_language](https://andhs-eff.github.io/fgemma_pin_language)
+1. Navigate to [https://andhs-eff.github.io/fgemma_pin_language](https://andhs-eff.github.io/fgemma_pin_language) (or download `index.html` and `index.js` and open `index.js`)
 2. Wait for "Loading AI Model..." to change to "Ready to verify"
 3. Click microphone button
 4. Say: "My PIN is seven nine seven nine"

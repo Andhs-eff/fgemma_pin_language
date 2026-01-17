@@ -55,31 +55,6 @@ const TOOL_SCHEMA = [
                 description: "Returns 'Now I will connect to the interpreter' if language is Spanish, otherwise 'Please choose another language'"
             }
         }
-    },
-    {
-        type: "function",
-        function: {
-            name: "no_tool",
-            description: "Use this when the user's message does not contain the required information to call any other function. This is NOT an error; it means you should ask the user for the missing info.",
-            parameters: {
-                type: "object",
-                properties: {
-                    reason: {
-                        type: "string",
-                        description: "Short reason why no tool should be called (e.g., 'no pin provided', 'greeting only', 'no language provided')."
-                    },
-                    next_prompt: {
-                        type: "string",
-                        description: "What the assistant should ask the user next (e.g., 'Please say your 4-digit PIN')."
-                    }
-                },
-                required: ["reason", "next_prompt"]
-            },
-            return: {
-                type: "string",
-                description: "A user-facing prompt asking for the missing information."
-            }
-        }
     }
 ];
 
@@ -93,7 +68,7 @@ const TOOLS = {
             return "PIN is incorrect. Try again";
         }
     },
-
+    
     check_language: (language) => {
         console.log(`check_language called with: "${language}"`);
         const normalizedLanguage = language.toLowerCase().trim();
@@ -102,11 +77,6 @@ const TOOLS = {
         } else {
             return "Please choose another language";
         }
-    },
-
-    no_tool: (_reason, next_prompt) => {
-        console.log(`no_tool called. reason="${_reason}", next_prompt="${next_prompt}"`);
-        return next_prompt;
     }
 };
 
@@ -141,18 +111,18 @@ async function initApp() {
 async function initModel() {
     try {
         setStatus('Loading AI model...', 'loading');
-
+        
         // Load tokenizer and model
         STATE.tokenizer = await AutoTokenizer.from_pretrained('onnx-community/functiongemma-270m-it-ONNX');
         STATE.aiModel = await AutoModelForCausalLM.from_pretrained('onnx-community/functiongemma-270m-it-ONNX', {
             device: 'webgpu',
             dtype: 'q4',
         });
-
+        
         STATE.isModelLoaded = true;
         loadingOverlay.style.display = 'none';
         setStatus('Ready to verify', 'ready');
-
+        
         console.log('AI Model loaded successfully');
     } catch (error) {
         setStatus('Model loading failed', 'error');
@@ -168,12 +138,12 @@ function setupSpeechRecognition() {
         STATE.speechRecognition.continuous = false;
         STATE.speechRecognition.interimResults = false;
         STATE.speechRecognition.lang = 'en-US';
-
+        
         STATE.speechRecognition.onresult = (event) => {
             const transcript = event.results[0][0].transcript;
             processUserInput(transcript);
         };
-
+        
         STATE.speechRecognition.onerror = (event) => {
             console.error('Speech recognition error:', event.error);
             stopRecording();
@@ -181,7 +151,7 @@ function setupSpeechRecognition() {
             updateAIResponse('Sorry, I could not understand your speech. Please try again or type your input.');
             speakText('Sorry, I could not understand your speech. Please try again or type your input.');
         };
-
+        
         STATE.speechRecognition.onend = () => {
             stopRecording();
         };
@@ -195,7 +165,7 @@ function setupSpeechRecognition() {
 function setupEventListeners() {
     // Microphone button
     micButton.addEventListener('click', toggleRecording);
-
+    
     // Manual input send button
     sendButton.addEventListener('click', () => {
         const input = manualInputEl.value.trim();
@@ -204,7 +174,7 @@ function setupEventListeners() {
             manualInputEl.value = '';
         }
     });
-
+    
     // Manual input Enter key
     manualInputEl.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
@@ -255,10 +225,10 @@ function stopRecording() {
 async function processUserInput(input) {
     console.log('User input:', input);
     STATE.currentUserInput = input;
-
+    
     // Show user input
     updateAIResponse(`You said: "${input}"`);
-
+    
     try {
         // Process based on current state
         if (STATE.appState === 'PIN_VERIFICATION') {
@@ -273,94 +243,58 @@ async function processUserInput(input) {
     }
 }
 
-function getNoToolPromptForState() {
-    if (STATE.appState === 'PIN_VERIFICATION') {
-        return {
-            reason: 'no pin provided',
-            next_prompt: "I couldn't find a PIN in that. Please say your 4-digit PIN, for example: 'My PIN is 1234'."
-        };
-    }
-
-    if (STATE.appState === 'LANGUAGE_VERIFICATION') {
-        return {
-            reason: 'no language provided',
-            next_prompt: "I couldn't find a language in that. Please say the language, for example: 'Spanish'."
-        };
-    }
-
-    return {
-        reason: 'unknown state',
-        next_prompt: 'Please try again.'
-    };
-}
-
 // Process PIN verification
 async function processPinVerification(userInput) {
     setStatus('Processing PIN...', 'processing');
-
-    const noTool = getNoToolPromptForState();
-
+    
     // Prepare messages for FunctionGemma
     const messages = [
         {
             role: "developer",
-            content: `You are a model that can do function calling with the following functions.
-
-You MUST follow these rules:
-- Call EXACTLY ONE function.
-- If the user message contains a PIN (a 4-digit number, or a clearly stated PIN), call check_pin with the extracted digits.
-- If the user message does NOT contain a PIN, call no_tool with reason and next_prompt asking the user to provide a 4-digit PIN.
-- Never invent a PIN. Only extract from the user's message.
-- Do NOT call no_tool if you already called check_pin.
-
-Example Session (PIN provided):
+            content: `You are a model that can do function calling with the following functions. Extract the PIN number from the user's input.
+Example Session:
 User: PIN is 7979
-Model: <start_function_call>call:check_pin{pin:<escape>7979<escape>}<end_function_call>
-
-Example Session (no PIN provided):
-User: Hello
-Model: <start_function_call>call:no_tool{reason:<escape>greeting only<escape>,next_prompt:<escape>Please say your 4-digit PIN, for example: My PIN is 1234.<escape>}<end_function_call>`
+Model: <start_function_call>call:check_pin{pin:<escape>7979<escape>}<end_function_call>`
         },
         {
             role: "user",
-            content: `User said: "${userInput}". Call exactly one: check_pin OR no_tool.`
+            content: `User said: "${userInput}". Extract the PIN number.`
         }
     ];
-
+    
     // Apply chat template
     const inputs = STATE.tokenizer.apply_chat_template(messages, {
-        tools: [TOOL_SCHEMA[0], TOOL_SCHEMA[2]], // PIN tool + abstain tool
+        tools: [TOOL_SCHEMA[0]], // Only PIN tool
         tokenize: true,
         add_generation_prompt: true,
         return_dict: true,
     });
 
-    console.log('Model Input (Decoded):', STATE.tokenizer.decode(inputs.input_ids[0]));
+    console.log('Model Input (Decoded):', STATE.tokenizer.decode(inputs.input_ids[0]));    
+
 
     // Generate function call
-    const output = await STATE.aiModel.generate({
-        ...inputs,
-        max_new_tokens: 128,
-        do_sample: false
+    const output = await STATE.aiModel.generate({ 
+        ...inputs, 
+        max_new_tokens: 128, 
+        do_sample: false 
     });
-
-    const decoded = STATE.tokenizer.decode(output.slice(0, [inputs.input_ids.dims[1], null]), {
-        skip_special_tokens: false
+    
+    const decoded = STATE.tokenizer.decode(output.slice(0, [inputs.input_ids.dims[1], null]), { 
+        skip_special_tokens: false 
     });
-
+    
     console.log('AI Response:', decoded);
-
+    
     // Parse function call
-    // Prefer the real tool if both appear in the output.
     const pinResult = parseFunctionCall(decoded, 'check_pin');
-    const noToolResult = pinResult ? null : parseFunctionCall(decoded, 'no_tool');
-
+    
     if (pinResult && pinResult.pin !== undefined) {
         // Execute the tool
         const toolResponse = TOOLS.check_pin(pinResult.pin);
         updateAIResponse(toolResponse);
         speakText(toolResponse);
-
+        
         // Update state based on response
         if (toolResponse === "Please choose the language") {
             STATE.appState = 'LANGUAGE_VERIFICATION';
@@ -369,89 +303,66 @@ Model: <start_function_call>call:no_tool{reason:<escape>greeting only<escape>,ne
             // Stay in PIN verification state
             updateUIState();
         }
-    } else if (noToolResult && noToolResult.next_prompt !== undefined) {
-        const toolResponse = TOOLS.no_tool(noToolResult.reason ?? noTool.reason, noToolResult.next_prompt);
-        updateAIResponse(toolResponse);
-        speakText(toolResponse);
-        updateUIState();
     } else {
-        // Fallback if model output is malformed
-        const toolResponse = TOOLS.no_tool(noTool.reason, noTool.next_prompt);
-        updateAIResponse(toolResponse);
-        speakText(toolResponse);
-        updateUIState();
+        // No valid PIN extracted
+        updateAIResponse("I couldn't find a PIN number in your input. Please say something like 'My PIN is 1234'.");
+        speakText("I couldn't find a PIN number in your input. Please say something like 'My PIN is 1234'.");
     }
-
+    
     setStatus('Ready to verify', 'ready');
 }
 
 // Process language verification
 async function processLanguageVerification(userInput) {
     setStatus('Processing language...', 'processing');
-
-    const noTool = getNoToolPromptForState();
-
+    
     // Prepare messages for FunctionGemma
     const messages = [
         {
             role: "developer",
-            content: `You are a model that can do function calling with the following functions.
-
-You MUST follow these rules:
-- Call EXACTLY ONE function.
-- If the user message contains a language name, call check_language with the extracted language.
-- If the user message does NOT contain a language name, call no_tool with reason and next_prompt asking the user to provide a language.
-- Never invent a language. Only extract from the user's message.
-- Do NOT call no_tool if you already called check_language.
-
-Example Session (language provided):
+            content: `You are a model that can do function calling with the following functions. Extract the language name from the user's input.
+Example Session:
 User: I choose Spanish
-Model: <start_function_call>call:check_language{language:<escape>Spanish<escape>}<end_function_call>
-
-Example Session (no language provided):
-User: Hello
-Model: <start_function_call>call:no_tool{reason:<escape>greeting only<escape>,next_prompt:<escape>Please say the language, for example: Spanish.<escape>}<end_function_call>`
+Model: <start_function_call>call:check_language{language:<escape>Spanish<escape>}<end_function_call>`
         },
         {
             role: "user",
-            content: `User said: "${userInput}". Call exactly one: check_language OR no_tool.`
+            content: `User said: "${userInput}". Extract the language name.`
         }
     ];
-
+    
     // Apply chat template
     const inputs = STATE.tokenizer.apply_chat_template(messages, {
-        tools: [TOOL_SCHEMA[1], TOOL_SCHEMA[2]], // language tool + abstain tool
+        tools: [TOOL_SCHEMA[1]], // Only language tool
         tokenize: true,
         add_generation_prompt: true,
         return_dict: true,
     });
 
-    console.log('Model Input (Decoded):', STATE.tokenizer.decode(inputs.input_ids[0]));
+    console.log('Model Input (Decoded):', STATE.tokenizer.decode(inputs.input_ids[0]));     
 
     // Generate function call
-    const output = await STATE.aiModel.generate({
-        ...inputs,
-        max_new_tokens: 128,
-        do_sample: false
+    const output = await STATE.aiModel.generate({ 
+        ...inputs, 
+        max_new_tokens: 128, 
+        do_sample: false 
     });
-
-    const decoded = STATE.tokenizer.decode(output.slice(0, [inputs.input_ids.dims[1], null]), {
-        skip_special_tokens: false
+    
+    const decoded = STATE.tokenizer.decode(output.slice(0, [inputs.input_ids.dims[1], null]), { 
+        skip_special_tokens: false 
     });
-
+    
     console.log('AI Response:', decoded);
-
+    
     // Parse function call
-    // Prefer the real tool if both appear in the output.
     const languageResult = parseFunctionCall(decoded, 'check_language');
-    const noToolResult = languageResult ? null : parseFunctionCall(decoded, 'no_tool');
-
+    
     if (languageResult && languageResult.language !== undefined) {
         // Execute the tool
         const toolResponse = TOOLS.check_language(languageResult.language);
         updateAIResponse(toolResponse);
         speakText(toolResponse);
-
+        
         // Update state based on response
         if (toolResponse === "Now I will connect to the interpreter") {
             STATE.appState = 'COMPLETE';
@@ -461,19 +372,12 @@ Model: <start_function_call>call:no_tool{reason:<escape>greeting only<escape>,ne
             // Stay in language verification state
             updateUIState();
         }
-    } else if (noToolResult && noToolResult.next_prompt !== undefined) {
-        const toolResponse = TOOLS.no_tool(noToolResult.reason ?? noTool.reason, noToolResult.next_prompt);
-        updateAIResponse(toolResponse);
-        speakText(toolResponse);
-        updateUIState();
     } else {
-        // Fallback if model output is malformed
-        const toolResponse = TOOLS.no_tool(noTool.reason, noTool.next_prompt);
-        updateAIResponse(toolResponse);
-        speakText(toolResponse);
-        updateUIState();
+        // No valid language extracted
+        updateAIResponse("I couldn't find a language name in your input. Please say something like 'I choose Spanish'.");
+        speakText("I couldn't find a language name in your input. Please say something like 'I choose Spanish'.");
     }
-
+    
     setStatus('Ready to verify', 'ready');
 }
 
@@ -481,46 +385,32 @@ Model: <start_function_call>call:no_tool{reason:<escape>greeting only<escape>,ne
 function parseFunctionCall(decoded, expectedFunction) {
     const startTag = "<start_function_call>";
     const endTag = "<end_function_call>";
-
-    // There may be multiple tool calls; find the one matching expectedFunction.
-    let searchFrom = 0;
-    while (true) {
-        const startIndex = decoded.indexOf(startTag, searchFrom);
-        if (startIndex === -1) return null;
-
-        const endIndex = decoded.indexOf(endTag, startIndex + startTag.length);
-        if (endIndex === -1) return null;
-
-        const callStr = decoded.substring(startIndex + startTag.length, endIndex);
-        searchFrom = endIndex + endTag.length;
-
+    const startIndex = decoded.indexOf(startTag);
+    const endIndex = decoded.indexOf(endTag);
+    
+    if (startIndex !== -1 && endIndex !== -1) {
+        let callStr = decoded.substring(startIndex + startTag.length, endIndex);
+        
         // Check if this is the expected function
-        if (!callStr.startsWith(`call:${expectedFunction}`)) {
-            continue;
-        }
-
-        try {
-            // Extract JSON-like string
-            let argsStr = callStr.substring(callStr.indexOf("{"));
-
-            // Sanitize to valid JSON.
-            // Models sometimes omit commas between fields, e.g.:
-            // {reason:<escape>greeting<escape>,next_prompt:<escape>...<escape>}  (OK)
-            // {reason:<escape>greeting<escape> next_prompt:<escape>...<escape>} (missing comma)
-            argsStr = argsStr
-                // Handle string escapes (allow multiline)
-                .replace(/<escape>(.*?)<escape>/gs, '"$1"')
-                // Quote keys
-                .replace(/(\w+)\s*:/g, '"$1":')
-                // Insert a missing comma between a string value and the next key
-                .replace(/"\s*(?=\w+"\s*:)/g, '", ');
-
-            return JSON.parse(argsStr);
-        } catch (error) {
-            console.error('Error parsing function call:', error);
-            return null;
+        if (callStr.startsWith(`call:${expectedFunction}`)) {
+            try {
+                // Extract JSON-like string
+                let argsStr = callStr.substring(callStr.indexOf("{"));
+                
+                // Sanitize to valid JSON
+                argsStr = argsStr
+                    .replace(/<escape>(.*?)<escape>/g, '"$1"') // Handle string escapes
+                    .replace(/(\w+):/g, '"$1":'); // Quote keys
+                
+                return JSON.parse(argsStr);
+            } catch (error) {
+                console.error('Error parsing function call:', error);
+                return null;
+            }
         }
     }
+    
+    return null;
 }
 
 // Update AI response display
@@ -576,23 +466,23 @@ function speakText(text) {
     if (STATE.speechSynthesis) {
         // Cancel any ongoing speech
         STATE.speechSynthesis.cancel();
-
+        
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'en-US';
         utterance.rate = 1.0;
         utterance.pitch = 1.0;
         utterance.volume = 1.0;
-
+        
         // Find a good voice
         const voices = STATE.speechSynthesis.getVoices();
-        const englishVoice = voices.find(voice =>
+        const englishVoice = voices.find(voice => 
             voice.lang.startsWith('en') && voice.name.includes('Google')
         ) || voices.find(voice => voice.lang.startsWith('en'));
-
+        
         if (englishVoice) {
             utterance.voice = englishVoice;
         }
-
+        
         STATE.speechSynthesis.speak(utterance);
     }
 }
@@ -600,7 +490,7 @@ function speakText(text) {
 // Update status display
 function setStatus(text, type) {
     statusTextEl.textContent = text;
-
+    
     // Update dot color based on type
     const colors = {
         'loading': 'bg-yellow-500',
@@ -611,17 +501,17 @@ function setStatus(text, type) {
         'processing': 'bg-blue-500',
         'complete': 'bg-purple-500'
     };
-
+    
     // Remove all color classes
     statusDotEl.className = 'w-3 h-3 rounded-full mr-2 ' + (colors[type] || 'bg-gray-500');
-
+    
     // Add pulse animation for loading and recording
     if (type === 'loading' || type === 'recording') {
         statusDotEl.classList.add('animate-pulse');
     } else {
         statusDotEl.classList.remove('animate-pulse');
     }
-
+    
     // Update status indicator background
     const bgColors = {
         'loading': 'bg-yellow-100 text-yellow-800',
@@ -632,7 +522,7 @@ function setStatus(text, type) {
         'processing': 'bg-blue-100 text-blue-800',
         'complete': 'bg-purple-100 text-purple-800'
     };
-
+    
     statusIndicatorEl.className = `inline-flex items-center px-4 py-2 rounded-full mt-4 status-indicator ${bgColors[type] || 'bg-gray-100 text-gray-800'}`;
 }
 

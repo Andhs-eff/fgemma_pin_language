@@ -116,7 +116,7 @@ async function initModel() {
         STATE.tokenizer = await AutoTokenizer.from_pretrained('onnx-community/functiongemma-270m-it-ONNX');
         STATE.aiModel = await AutoModelForCausalLM.from_pretrained('onnx-community/functiongemma-270m-it-ONNX', {
             device: 'webgpu',
-            dtype: 'q4',
+            dtype: 'fp16',
         });
         
         STATE.isModelLoaded = true;
@@ -251,14 +251,14 @@ async function processPinVerification(userInput) {
     const messages = [
         {
             role: "developer",
-            content: `You are a model that can do function calling with the following functions. Extract the PIN number from the user's input.
+            content: `You are a model that can do function calling with the following functions. Try to extract the PIN number from the user's input.
 Example Session:
-User: PIN is 7979
-Model: <start_function_call>call:check_pin{pin:<escape>7979<escape>}<end_function_call>`
+User: PIN is 1234
+Model: <start_function_call>call:check_pin{pin:<escape>1234<escape>}<end_function_call>`
         },
         {
             role: "user",
-            content: `User said: "${userInput}". Extract the PIN number.`
+            content: `User said: "${userInput}". Try to extract a PIN code. If no PIN code is provided, PIN code is empty.`
         }
     ];
     
@@ -287,11 +287,11 @@ Model: <start_function_call>call:check_pin{pin:<escape>7979<escape>}<end_functio
     console.log('AI Response:', decoded);
     
     // Parse function call
-    const pinResult = parseFunctionCall(decoded, 'check_pin');
+    const funcResult = parseFunctionCall(decoded);
     
-    if (pinResult && pinResult.pin !== undefined) {
+    if (funcResult && funcResult.name === 'check_pin' && funcResult.args.pin !== undefined) {
         // Execute the tool
-        const toolResponse = TOOLS.check_pin(pinResult.pin);
+        const toolResponse = TOOLS.check_pin(funcResult.args.pin);
         updateAIResponse(toolResponse);
         speakText(toolResponse);
         
@@ -320,14 +320,14 @@ async function processLanguageVerification(userInput) {
     const messages = [
         {
             role: "developer",
-            content: `You are a model that can do function calling with the following functions. Extract the language name from the user's input.
+            content: `You are a model that can do function calling with the following functions. Try to extract the language name from the user's input.
 Example Session:
-User: I choose Spanish
-Model: <start_function_call>call:check_language{language:<escape>Spanish<escape>}<end_function_call>`
+User: I choose Russian
+Model: <start_function_call>call:check_language{language:<escape>Russian<escape>}<end_function_call>`
         },
         {
             role: "user",
-            content: `User said: "${userInput}". Extract the language name.`
+            content: `User said: "${userInput}". Try to extract the language name. If no language name is provided, language name is empty.`
         }
     ];
     
@@ -355,11 +355,11 @@ Model: <start_function_call>call:check_language{language:<escape>Spanish<escape>
     console.log('AI Response:', decoded);
     
     // Parse function call
-    const languageResult = parseFunctionCall(decoded, 'check_language');
+    const funcResult = parseFunctionCall(decoded);
     
-    if (languageResult && languageResult.language !== undefined) {
+    if (funcResult && funcResult.name === 'check_language' && funcResult.args.language !== undefined) {
         // Execute the tool
-        const toolResponse = TOOLS.check_language(languageResult.language);
+        const toolResponse = TOOLS.check_language(funcResult.args.language);
         updateAIResponse(toolResponse);
         speakText(toolResponse);
         
@@ -382,29 +382,34 @@ Model: <start_function_call>call:check_language{language:<escape>Spanish<escape>
 }
 
 // Parse function call from AI response
-function parseFunctionCall(decoded, expectedFunction) {
-    const startTag = "<start_function_call>";
+function parseFunctionCall(decoded) {
+    const startTag = "<start_function_call>call:";
     const endTag = "<end_function_call>";
     const startIndex = decoded.indexOf(startTag);
     const endIndex = decoded.indexOf(endTag);
     
     if (startIndex !== -1 && endIndex !== -1) {
-        let callStr = decoded.substring(startIndex + startTag.length, endIndex);
+        const content = decoded.substring(startIndex + startTag.length, endIndex);
+        // Content format is usually: "function_name{json_args}"
         
-        // Check if this is the expected function
-        if (callStr.startsWith(`call:${expectedFunction}`)) {
+        const braceIndex = content.indexOf('{');
+        if (braceIndex !== -1) {
+            const funcName = content.substring(0, braceIndex);
+            const argsStr = content.substring(braceIndex);
+            
             try {
-                // Extract JSON-like string
-                let argsStr = callStr.substring(callStr.indexOf("{"));
-                
                 // Sanitize to valid JSON
-                argsStr = argsStr
+                // FunctionGemma uses <escape> for string delimiters in JSON
+                const cleanArgs = argsStr
                     .replace(/<escape>(.*?)<escape>/g, '"$1"') // Handle string escapes
                     .replace(/(\w+):/g, '"$1":'); // Quote keys
                 
-                return JSON.parse(argsStr);
+                return {
+                    name: funcName,
+                    args: JSON.parse(cleanArgs)
+                };
             } catch (error) {
-                console.error('Error parsing function call:', error);
+                console.error('Error parsing function call arguments:', error);
                 return null;
             }
         }
